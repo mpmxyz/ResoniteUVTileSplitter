@@ -28,9 +28,16 @@ internal class Algorithm {
 		List<UVTriangle> halfCutV,
 		List<UVTriangle> fullCutV) {
 		// split by U, each result is split by V (only executes the splits that are required)
-		
+		//TODO: check for stack allocated alternative to CutUV lists
+		if (DebugHelpers.PrintTrace) {
+			DebugHelpers.Trace($"SplitIntoTiles {initial}, {tiles.Count}");
+		}
+
 		//processes a single tile of triangles
 		void ProcessUVTile(int uIndex, int vIndex, List<UVTriangle> triangles) {
+			if (DebugHelpers.PrintTrace) {
+				DebugHelpers.Trace($"ProcessUVTile {uIndex}, {vIndex}, {triangles.Count}");
+			}
 			UVTileKey key = new(uIndex, vIndex);
 			foreach(UVTriangle triangle in triangles) {
 				tiles.Add((key, triangle));
@@ -40,13 +47,16 @@ internal class Algorithm {
 		//processes a whole column of triangles within the same range of u coordinates
 		//splits it into UV tiles
 		void ProcessUColumn(int uIndex, List<UVTriangle> uSlice) {
+			if (DebugHelpers.PrintTrace) {
+				DebugHelpers.Trace($"ProcessUColumn {uIndex}, {uSlice.Count}");
+			}
 			foreach (UVTriangle sliceTriangle in uSlice) {
 				SingleAxisRange vRange = sliceTriangle.VRange;
 				foreach (Piece vPiece in vRange.Pieces) {
 					halfCutV.Clear();
 					fullCutV.Clear();
 					Cut(sliceTriangle, vPiece.LowerVBoundary, halfCutV);
-					foreach (UVTriangle triangle in halfCutU) {
+					foreach (UVTriangle triangle in halfCutV) {
 						Cut(triangle, vPiece.UpperVBoundary, fullCutV);
 					}
 					ProcessUVTile(uIndex, vPiece.Index, fullCutV);
@@ -57,6 +67,9 @@ internal class Algorithm {
 		//splits the triangle into U columns
 		SingleAxisRange uRange = initial.URange;
 		foreach (Piece uPiece in uRange.Pieces) {
+			if (DebugHelpers.PrintTrace) {
+				DebugHelpers.Trace($"uPiece {uPiece.Index}");
+			}
 			halfCutU.Clear();
 			fullCutU.Clear();
 			Cut(initial, uPiece.LowerUBoundary, halfCutU);
@@ -64,6 +77,9 @@ internal class Algorithm {
 				Cut(triangle, uPiece.UpperUBoundary, fullCutU);
 			}
 			ProcessUColumn(uPiece.Index, fullCutU);
+		}
+		if (DebugHelpers.PrintTrace) {
+			DebugHelpers.Trace($"Exit SplitIntoTiles {initial}, {tiles.Count}");
 		}
 	}
 
@@ -74,7 +90,19 @@ internal class Algorithm {
 	/// <param name="boundary">half-plane the triangle is intersected with</param>
 	/// <param name="positiveHalves">collection that is appended to with triangles that are both part of the original triangle and the half-plane</param>
 	internal static void Cut(UVTriangle triangle, UVTileBoundary boundary, ICollection<UVTriangle> positiveHalves) {
+		var initialCount = positiveHalves.Count;
+		if (DebugHelpers.PrintTrace) {
+			DebugHelpers.Trace($"Cut {triangle}, {boundary}, {positiveHalves.Count}");
+		}
 		Cut(triangle, boundary.Offset, boundary.Normal, positiveHalves);
+		if (DebugHelpers.PrintTrace) {
+			DebugHelpers.Trace($"Exit Cut {triangle}, {boundary}, {positiveHalves.Count}");
+		}
+		foreach (var outputTriangle in positiveHalves.Skip(initialCount)) {
+			if (DebugHelpers.PrintTrace) {
+				DebugHelpers.Trace($" {outputTriangle}");
+			}
+		}
 	}
 
 	/// <summary>

@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-using Elements.Core;
+﻿using Elements.Core;
 
 namespace ResoniteUVTileSplitter;
 internal record struct SingleAxisRange(int Min, int Max) {

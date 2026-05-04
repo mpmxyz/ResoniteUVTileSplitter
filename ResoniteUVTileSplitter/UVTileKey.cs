@@ -1,10 +1,19 @@
 ﻿using Elements.Core;
 
 namespace ResoniteUVTileSplitter;
-internal record struct UVTileKey(int U, int V) {
-	internal UVTileKey(int2 uv) : this(uv.x, uv.y) {
+internal record struct UVTileKey(int2 UV) {
+	internal readonly int U {
+		get => UV.x;
+	}
+	internal readonly int V {
+		get => UV.y;
+	}
+
+	internal UVTileKey(int u, int v) : this(new int2(u, v)) {
 
 	}
+
+
 	internal static UVTileKey FromUV(float u, float v) {
 		//TODO: handle degenerate cases
 		return new UVTileKey((int)MathF.Floor(u), (int)MathF.Floor(v));

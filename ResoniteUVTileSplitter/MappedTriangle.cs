@@ -1,5 +1,4 @@
 ﻿using Elements.Assets;
-using Elements.Core;
 
 namespace ResoniteUVTileSplitter;
 internal record struct MappedTriangle(Triangle Source, int UVChannel, UVTriangle TargetTriangle) {

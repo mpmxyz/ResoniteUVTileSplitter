@@ -19,8 +19,16 @@
 	<ItemGroup>
 		<PackageReference Include="ResoniteModLoader" Version="5.0.1" />
 		<PackageReference Include="Lib.Harmony" Version="2.4.2" />
+		<Reference Include="BepuPhysics">
+			<HintPath>$(ResonitePath)BepuPhysics.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 		<Reference Include="FrooxEngine">
 			<HintPath>$(ResonitePath)FrooxEngine.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="FrooxEngine.Store">
+			<HintPath>$(ResonitePath)FrooxEngine.Store.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="Elements.Assets">
