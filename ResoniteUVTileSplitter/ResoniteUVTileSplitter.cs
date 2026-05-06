@@ -72,13 +72,16 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 		}
 		await default(ToWorld);
 		MeshCollider meshCollider = renderer.Slot.GetComponent<MeshCollider>((c) => c.Mesh.Target == renderer.Mesh.Target);
+		//TODO: sort by UV tile
 		foreach ((UVTileKey key, Uri meshURI) in meshURIs) {
+			//TODO: move original mesh to tile closest to 0/0 instead of copying
 			StaticMesh staticMesh = assetTarget.AttachStaticMesh(meshURI);
 			Slot targetSlot = renderer.Slot.AddSlot($"{renderer.Slot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
-
+			
 			//CopyComponent((Component)...) makes this agnostic to the underlying renderer type.
 			MeshRenderer newRenderer = (MeshRenderer)targetSlot.CopyComponent((Component)renderer);
 			newRenderer.Mesh.Target = staticMesh;
+			//TODO: option to ValueCopy blendshapes from reused mesh
 			if (meshCollider != null) {
 				MeshCollider newCollider = targetSlot.CopyComponent(meshCollider);
 				newCollider.Mesh.Target = staticMesh;
@@ -123,6 +126,9 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 				targetPoints.AddPoint(point.VertexIndex);
 			}
 		}
+
+		//reused triangle lists to avoid allocations
+		List<UVTriangle> halfCutU = [], fullCutU = [], halfCutV = [], fullCutV = [];
 		List<(UVTileKey, UVTriangle)> tiledUVs = [];
 		Dictionary<(UVTileKey, VertexMixture), Vertex> knownVertexMixtures = [];
 		void MapTriangleSubmesh(TriangleSubmesh sourceTriangles) {
@@ -137,9 +143,12 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 				var uv1 = v1.GetUV(uvChannel);
 				var uv2 = v2.GetUV(uvChannel);
 				UVTriangle fullUVTriangle = new(uv0, uv1, uv2);
+				if (DebugHelpers.PrintTrace) {
+					DebugHelpers.Trace($"Triangle {i} ({v0.Index} {v1.Index} {v2.Index})");
+				}
 
 				tiledUVs.Clear();
-				Algorithm.SplitIntoTiles(fullUVTriangle, tiledUVs);
+				Algorithm.SplitIntoTiles(fullUVTriangle, tiledUVs, halfCutU, fullCutU, halfCutV, fullCutV);
 
 				foreach ((UVTileKey key, UVTriangle tileTriangle) in tiledUVs) {
 					MeshX targetMesh = GetMeshForKey(key);

@@ -52,31 +52,45 @@ internal class Algorithm {
 			}
 			foreach (UVTriangle sliceTriangle in uSlice) {
 				SingleAxisRange vRange = sliceTriangle.VRange;
-				foreach (Piece vPiece in vRange.Pieces) {
-					halfCutV.Clear();
-					fullCutV.Clear();
-					Cut(sliceTriangle, vPiece.LowerVBoundary, halfCutV);
-					foreach (UVTriangle triangle in halfCutV) {
-						Cut(triangle, vPiece.UpperVBoundary, fullCutV);
+				if (vRange.HasBoundaries) {
+					foreach (Piece vPiece in vRange.Pieces) {
+						halfCutV.Clear();
+						fullCutV.Clear();
+						Cut(sliceTriangle, vPiece.LowerVBoundary, halfCutV);
+						foreach (UVTriangle triangle in halfCutV) {
+							Cut(triangle, vPiece.UpperVBoundary, fullCutV);
+						}
+						ProcessUVTile(uIndex, vPiece.Index, fullCutV);
 					}
-					ProcessUVTile(uIndex, vPiece.Index, fullCutV);
+				} else {
+					//literal shortCUT when triangle is fully within a tile -> optimized more common case
+					fullCutV.Clear();
+					fullCutV.Add(sliceTriangle);
+					ProcessUVTile(uIndex, vRange.Min, fullCutV);
 				}
 			}
 		}
 
 		//splits the triangle into U columns
 		SingleAxisRange uRange = initial.URange;
-		foreach (Piece uPiece in uRange.Pieces) {
-			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"uPiece {uPiece.Index}");
+		if (uRange.HasBoundaries){
+			foreach (Piece uPiece in uRange.Pieces) {
+				if (DebugHelpers.PrintTrace) {
+					DebugHelpers.Trace($"uPiece {uPiece.Index}");
+				}
+				halfCutU.Clear();
+				fullCutU.Clear();
+				Cut(initial, uPiece.LowerUBoundary, halfCutU);
+				foreach (UVTriangle triangle in halfCutU) {
+					Cut(triangle, uPiece.UpperUBoundary, fullCutU);
+				}
+				ProcessUColumn(uPiece.Index, fullCutU);
 			}
-			halfCutU.Clear();
+		} else {
+			//literal shortCUT when triangle is fully within a tile -> optimized more common case
 			fullCutU.Clear();
-			Cut(initial, uPiece.LowerUBoundary, halfCutU);
-			foreach (UVTriangle triangle in halfCutU) {
-				Cut(triangle, uPiece.UpperUBoundary, fullCutU);
-			}
-			ProcessUColumn(uPiece.Index, fullCutU);
+			fullCutU.Add(initial);
+			ProcessUColumn(uRange.Min, fullCutU);
 		}
 		if (DebugHelpers.PrintTrace) {
 			DebugHelpers.Trace($"Exit SplitIntoTiles {initial}, {tiles.Count}");
@@ -142,18 +156,20 @@ internal class Algorithm {
 				//if (d1 <= 0) will confirm if d1 > 0
 			} //else: d1 > 0
 		} //else: d1 > 0
+		float d0 = Distance(triangle.UV0);
 		float d1 = Distance(triangle.UV1);
+		float d2 = Distance(triangle.UV2);
 		if (IsNotNormalized()) {
 			//third try: either whole triangle is dX <= 0 or it is dX > 0 -> only exists in one half
-			if (d1 > 0) { // dX > 0
+			if (d0 >= 0 && d1 >= 0 && d2 >= 0) { // dX >= 0
+												 // The check cannot reuse above assumptions because they'd place dX=0 into the negative half.
+												 // This also has the side effect of making the cut operation inclusive on both sides.
 				positiveHalves.Add(triangle);
 			} else { // dX <= 0
 				//negativeHalves.Add(triangle);
 			}
 			return;
 		} //else: d1 > 0 (!)
-		float d0 = Distance(triangle.UV0);
-		float d2 = Distance(triangle.UV2);
 
 		if (d0 < 0) { //&& d1 > 0
 					  // cut (UV0, UV1)
