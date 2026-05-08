@@ -1,22 +1,18 @@
 ﻿using Elements.Core;
 
-namespace ResoniteUVTileSplitter;
+namespace ResoniteUVTileSplitter.MeshXSplitting;
+/// <summary>
+/// This object represents a mixture of vertices from a given mesh.
+/// It is used as a key to avoid creating duplicate vertices from the same mixture.
+/// </summary>
+/// <param name="VertexIDs">Vertices involved in the mixture</param>
+/// <param name="Coefficients">Mixture coefficients</param>
 internal record struct VertexMixture(int3 VertexIDs, float3 Coefficients) {
-	readonly int VertexCount {
-		get {
-			if (Coefficients.x == 0) {
-				return 0;
-			} else if (Coefficients.y == 0) {
-				return 1;
-			} else if (Coefficients.z == 0) {
-				return 2;
-			} else {
-				return 3;
-			}
-		}
-	}
-
-	internal VertexMixture Canonalized() {
+	/// <summary>
+	/// This joins duplicated vertex ids and sorts them so that the mixtures with the same components and rations result in the same mixture value.
+	/// </summary>
+	/// <returns>The canonical version of this mixture.</returns>
+	internal readonly VertexMixture Canonalized() {
 		static VertexMixture CreateUnified(int3 ids, float3 coefficients) {
 			if (ids.x == ids.y) {
 				if (ids.y == ids.z) {

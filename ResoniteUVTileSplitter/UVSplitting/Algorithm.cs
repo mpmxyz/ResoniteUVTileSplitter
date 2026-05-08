@@ -1,13 +1,17 @@
 ﻿using Elements.Core;
 
-namespace ResoniteUVTileSplitter;
-internal class Algorithm {
+namespace ResoniteUVTileSplitter.UVSplitting;
+
+/// <summary>
+/// This class contains the core algorithms used to cut UV triangles into tiles.
+/// </summary>
+internal static class Algorithm {
 	/// <summary>
 	/// This method will split a given triangle into triangles conforming to a UV tile grid.
 	/// </summary>
 	/// <param name="initial">initial triangle to be split</param>
 	/// <param name="tiles">All combinations of UV tile and triangles will be added to this collection.</param>
-	internal static void SplitIntoTiles(UVTriangle initial, ICollection<(UVTileKey, UVTriangle)> tiles) {
+	internal static void SplitIntoTiles(MixedUVTriangle initial, ICollection<(UVTileKey, MixedUVTriangle)> tiles) {
 		SplitIntoTiles(initial, tiles, [], [], [], []);
 	}
 
@@ -21,12 +25,12 @@ internal class Algorithm {
 	/// <param name="halfCutV">This parameter only exists to avoid memory allocations by object reuse. (internally used list of triangles, undefined state after call)</param>
 	/// <param name="fullCutV">This parameter only exists to avoid memory allocations by object reuse. (internally used list of triangles, undefined state after call)</param>
 	internal static void SplitIntoTiles(
-		UVTriangle initial,
-		ICollection<(UVTileKey, UVTriangle)> tiles,
-		List<UVTriangle> halfCutU,
-		List<UVTriangle> fullCutU,
-		List<UVTriangle> halfCutV,
-		List<UVTriangle> fullCutV) {
+		MixedUVTriangle initial,
+		ICollection<(UVTileKey, MixedUVTriangle)> tiles,
+		List<MixedUVTriangle> halfCutU,
+		List<MixedUVTriangle> fullCutU,
+		List<MixedUVTriangle> halfCutV,
+		List<MixedUVTriangle> fullCutV) {
 		// split by U, each result is split by V (only executes the splits that are required)
 		//TODO: check for stack allocated alternative to CutUV lists
 		if (DebugHelpers.PrintTrace) {
@@ -34,54 +38,53 @@ internal class Algorithm {
 		}
 
 		//processes a single tile of triangles
-		void ProcessUVTile(int uIndex, int vIndex, List<UVTriangle> triangles) {
+		void ProcessUVTile(UVTileKey tile, List<MixedUVTriangle> triangles) {
 			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"ProcessUVTile {uIndex}, {vIndex}, {triangles.Count}");
+				DebugHelpers.Trace($"ProcessUVTile {tile.U}, {tile.V}, {triangles.Count}");
 			}
-			UVTileKey key = new(uIndex, vIndex);
-			foreach(UVTriangle triangle in triangles) {
-				tiles.Add((key, triangle));
+			foreach(MixedUVTriangle triangle in triangles) {
+				tiles.Add((tile, triangle));
 			}
 		}
 
 		//processes a whole column of triangles within the same range of u coordinates
 		//splits it into UV tiles
-		void ProcessUColumn(int uIndex, List<UVTriangle> uSlice) {
+		void ProcessUColumn(int uIndex, List<MixedUVTriangle> uSlice) {
 			if (DebugHelpers.PrintTrace) {
 				DebugHelpers.Trace($"ProcessUColumn {uIndex}, {uSlice.Count}");
 			}
-			foreach (UVTriangle sliceTriangle in uSlice) {
-				SingleAxisRange vRange = sliceTriangle.VRange;
+			foreach (MixedUVTriangle sliceTriangle in uSlice) {
+				VRange vRange = sliceTriangle.VRange;
 				if (vRange.HasBoundaries) {
-					foreach (Piece vPiece in vRange.Pieces) {
+					foreach (VSegment vPiece in vRange.Segments) {
 						halfCutV.Clear();
 						fullCutV.Clear();
 						Cut(sliceTriangle, vPiece.LowerVBoundary, halfCutV);
-						foreach (UVTriangle triangle in halfCutV) {
+						foreach (MixedUVTriangle triangle in halfCutV) {
 							Cut(triangle, vPiece.UpperVBoundary, fullCutV);
 						}
-						ProcessUVTile(uIndex, vPiece.Index, fullCutV);
+						ProcessUVTile(new UVTileKey(uIndex, vPiece.Index), fullCutV);
 					}
 				} else {
 					//literal shortCUT when triangle is fully within a tile -> optimized more common case
 					fullCutV.Clear();
 					fullCutV.Add(sliceTriangle);
-					ProcessUVTile(uIndex, vRange.Min, fullCutV);
+					ProcessUVTile(new UVTileKey(uIndex, vRange.Min), fullCutV);
 				}
 			}
 		}
 
 		//splits the triangle into U columns
-		SingleAxisRange uRange = initial.URange;
+		URange uRange = initial.URange;
 		if (uRange.HasBoundaries){
-			foreach (Piece uPiece in uRange.Pieces) {
+			foreach (USegment uPiece in uRange.Segments) {
 				if (DebugHelpers.PrintTrace) {
 					DebugHelpers.Trace($"uPiece {uPiece.Index}");
 				}
 				halfCutU.Clear();
 				fullCutU.Clear();
 				Cut(initial, uPiece.LowerUBoundary, halfCutU);
-				foreach (UVTriangle triangle in halfCutU) {
+				foreach (MixedUVTriangle triangle in halfCutU) {
 					Cut(triangle, uPiece.UpperUBoundary, fullCutU);
 				}
 				ProcessUColumn(uPiece.Index, fullCutU);
@@ -103,17 +106,15 @@ internal class Algorithm {
 	/// <param name="triangle">to be intersected</param>
 	/// <param name="boundary">half-plane the triangle is intersected with</param>
 	/// <param name="positiveHalves">collection that is appended to with triangles that are both part of the original triangle and the half-plane</param>
-	internal static void Cut(UVTriangle triangle, UVTileBoundary boundary, ICollection<UVTriangle> positiveHalves) {
+	internal static void Cut(MixedUVTriangle triangle, UVTileBoundary boundary, ICollection<MixedUVTriangle> positiveHalves) {
 		var initialCount = positiveHalves.Count;
 		if (DebugHelpers.PrintTrace) {
 			DebugHelpers.Trace($"Cut {triangle}, {boundary}, {positiveHalves.Count}");
 		}
-		Cut(triangle, boundary.Offset, boundary.Normal, positiveHalves);
+		Cut(triangle, boundary.Origin, boundary.Normal, positiveHalves);
 		if (DebugHelpers.PrintTrace) {
 			DebugHelpers.Trace($"Exit Cut {triangle}, {boundary}, {positiveHalves.Count}");
-		}
-		foreach (var outputTriangle in positiveHalves.Skip(initialCount)) {
-			if (DebugHelpers.PrintTrace) {
+			foreach (var outputTriangle in positiveHalves.Skip(initialCount)) {
 				DebugHelpers.Trace($" {outputTriangle}");
 			}
 		}
@@ -126,18 +127,18 @@ internal class Algorithm {
 	/// <param name="offset">offset of the half-plane</param>
 	/// <param name="normal">normal of the half-plane, points in the direction of the positive/"kept" side</param>
 	/// <param name="positiveHalves">collection that is appended to with triangles that are both part of the original triangle and the half-plane</param>
-	internal static void Cut(UVTriangle triangle, float2 offset, float2 normal, ICollection<UVTriangle> positiveHalves) {
-		float Distance(TriangleUV uv) {
+	internal static void Cut(MixedUVTriangle triangle, float2 offset, float2 normal, ICollection<MixedUVTriangle> positiveHalves) {
+		float Distance(MixedUV uv) {
 			return MathX.Dot(uv.UV - offset, normal);
 		}
 
-		TriangleUV Intersect(TriangleUV a, TriangleUV b) {
+		MixedUV Intersect(MixedUV a, MixedUV b) {
 			//t=(o-a).n / (b-a).n
 			//b * t + a * (1-t)
 			float2 oa = offset - a.UV;
 			float2 ba = b.UV - a.UV;
 			float t = MathX.Dot(oa, normal) / MathX.Dot(ba, normal);
-			return TriangleUV.Lerp(a, b, t);
+			return MixedUV.Lerp(a, b, t);
 		}
 
 		//rotate triangle until Distance(UV0) <= 0 and Distance(UV1) > 0
@@ -180,19 +181,19 @@ internal class Algorithm {
 				// create negative(UV0, X01, UV2), negative(X01, X12, UV2), positive(X01, UV1, X12)
 				//negativeHalves.Add(new UVTriangle(triangle.UV0, intersection01, triangle.UV2));
 				//negativeHalves.Add(new UVTriangle(intersection01, intersection12, triangle.UV2));
-				positiveHalves.Add(new UVTriangle(intersection01, triangle.UV1, intersection12));
+				positiveHalves.Add(new MixedUVTriangle(intersection01, triangle.UV1, intersection12));
 			} else if (d2 > 0) {
 				//cut (UV2, UV0)
 				var intersection20 = Intersect(triangle.UV2, triangle.UV0);
 				// create negative(UV0, X01, X20), positive(X01, UV1, X20), positive(UV1, UV2, X20)
 				//negativeHalves.Add(new UVTriangle(triangle.UV0, intersection01, intersection20));
-				positiveHalves.Add(new UVTriangle(intersection01, triangle.UV1, intersection20));
-				positiveHalves.Add(new UVTriangle(triangle.UV1, triangle.UV2, intersection20));
+				positiveHalves.Add(new MixedUVTriangle(intersection01, triangle.UV1, intersection20));
+				positiveHalves.Add(new MixedUVTriangle(triangle.UV1, triangle.UV2, intersection20));
 			} else { //d2 = 0
 					 //UV2 is part of transition from positive to negative side.
 					 // create negative(UV0, X01, UV2) and positive(X01, UV1, UV2)
 				//negativeHalves.Add(new UVTriangle(triangle.UV0, intersection01, triangle.UV2));
-				positiveHalves.Add(new UVTriangle(intersection01, triangle.UV1, triangle.UV2));
+				positiveHalves.Add(new MixedUVTriangle(intersection01, triangle.UV1, triangle.UV2));
 			}
 		} else { // d0 >= 0 && d1 > 0
 				 // UV0 is the exact point of transition from negative to positive side.
@@ -200,7 +201,7 @@ internal class Algorithm {
 				// cut (UV1, UV2)
 				// create positive(UV0, UV1, X12) and negative(X12, UV2, UV0)
 				var intersection12 = Intersect(triangle.UV1, triangle.UV2);
-				positiveHalves.Add(new UVTriangle(triangle.UV0, triangle.UV1, intersection12));
+				positiveHalves.Add(new MixedUVTriangle(triangle.UV0, triangle.UV1, intersection12));
 				//negativeHalves.Add(new UVTriangle(intersection12, triangle.UV2, triangle.UV0));
 			} else { // d0 = 0 && d1 > 0 && d2 >= 0
 					 // whole triangle has d>=0 -> only exists in positive half

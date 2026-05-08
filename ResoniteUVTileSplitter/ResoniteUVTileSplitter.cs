@@ -1,5 +1,4 @@
 using Elements.Assets;
-using Elements.Core;
 
 using FrooxEngine;
 using FrooxEngine.UIX;
@@ -7,6 +6,8 @@ using FrooxEngine.UIX;
 using HarmonyLib;
 
 using ResoniteModLoader;
+
+using ResoniteUVTileSplitter.UVSplitting;
 
 namespace ResoniteUVTileSplitter;
 
@@ -62,159 +63,68 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 		}
 	}
 
-	static async Task SplitMeshByUVTilesTask(MeshRenderer renderer, MeshX original, Slot assetTarget, int uvChannel) {
-		Dictionary<UVTileKey, MeshX> tiledMeshes = SplitMeshByUVTiles(original, uvChannel);
+	/// <summary>
+	/// This will split the <paramref name="originalMesh"/> into tiles and ensure a MeshRenderer based on <paramref name="originalRenderer"/> for each tile.
+	/// The original renderer will be moved and used to display tile (0,0).
+	/// The enabled field and blendshape values of duplicated renderers will be driven based on the original renderer.
+	/// </summary>
+	/// <param name="originalRenderer">The (Skinned-)MeshRenderer that will be duplicated to display all tiles</param>
+	/// <param name="originalMesh">The mesh that should be split</param>
+	/// <param name="assetTarget">Slot that created assets are attached to</param>
+	/// <param name="uvChannel">UV-Channel that decides on how to split</param>
+	/// <returns></returns>
+	static async Task SplitMeshByUVTilesTask(MeshRenderer originalRenderer, MeshX originalMesh, Slot assetTarget, int uvChannel) {
+		Dictionary<UVTileKey, MeshX> tiledMeshes = MeshXSplitting.Algorithm.SplitMeshByUVTiles(originalMesh, uvChannel);
+		if (tiledMeshes.Count == 0) {
+			DebugHelpers.Debug("No meshes in split result -> nothing to do");
+			return;
+		}
 		//tiledMeshes.ForEach((mesh) => mesh.StripEmptyBlendshapes());
 		//tiledMeshes.ForEach((mesh) => mesh.StripEmptyBones());
+		DebugHelpers.Debug("Saving split mesh assets...");
 		Dictionary<UVTileKey, Uri> meshURIs = [];
 		foreach ((UVTileKey key, MeshX mesh) in tiledMeshes) {
-			meshURIs[key] = await renderer.Engine.LocalDB.SaveAssetAsync(mesh).ConfigureAwait(continueOnCapturedContext: false);
+			meshURIs[key] = await originalRenderer.Engine.LocalDB.SaveAssetAsync(mesh).ConfigureAwait(continueOnCapturedContext: false);
 		}
+		DebugHelpers.Debug("Split meshes are saved!");
 		await default(ToWorld);
-		MeshCollider meshCollider = renderer.Slot.GetComponent<MeshCollider>((c) => c.Mesh.Target == renderer.Mesh.Target);
-		//TODO: sort by UV tile
-		foreach ((UVTileKey key, Uri meshURI) in meshURIs) {
-			//TODO: move original mesh to tile closest to 0/0 instead of copying
+		DebugHelpers.Debug("Attaching MeshRenderers for split meshes...");
+		MeshCollider meshCollider = originalRenderer.Slot.GetComponent<MeshCollider>((c) => c.Mesh.Target == originalRenderer.Mesh.Target);
+		IOrderedEnumerable<KeyValuePair<UVTileKey, Uri>> sortedMeshURIs = meshURIs.OrderBy((kv) => kv.Key.V).ThenBy((kv) => kv.Key.U);
+		UVTileKey tileClosestToOrigin = meshURIs.MinBy((kv) => Math.Abs(kv.Key.U) + Math.Abs(kv.Key.V)).Key;
+		Slot tileParentSlot = originalRenderer.Slot;
+		foreach ((UVTileKey key, Uri meshURI) in sortedMeshURIs) {
 			StaticMesh staticMesh = assetTarget.AttachStaticMesh(meshURI);
-			Slot targetSlot = renderer.Slot.AddSlot($"{renderer.Slot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
-			
-			//CopyComponent((Component)...) makes this agnostic to the underlying renderer type.
-			MeshRenderer newRenderer = (MeshRenderer)targetSlot.CopyComponent((Component)renderer);
-			newRenderer.Mesh.Target = staticMesh;
-			//TODO: option to ValueCopy blendshapes from reused mesh
-			if (meshCollider != null) {
-				MeshCollider newCollider = targetSlot.CopyComponent(meshCollider);
-				newCollider.Mesh.Target = staticMesh;
-			}
-		}
-		meshCollider?.Destroy();
-		renderer.Destroy();
-	}
-
-	static Dictionary<UVTileKey, MeshX> SplitMeshByUVTiles(MeshX original, int uvChannel) {
-		Dictionary<UVTileKey, MeshX> mappedMeshes = [];
-
-		MeshX GetMeshForKey(UVTileKey key) {
-			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"GetMeshForKey {key}");
-			}
-			if (mappedMeshes.TryGetValue(key, out MeshX? value)) return value;
-			var newMesh = new MeshX(original);
-			var submeshCount = newMesh.SubmeshCount;
-			foreach (Submesh subMesh in newMesh.Submeshes) {
-				subMesh.Clear();
-			}
-			if (newMesh.BlendShapeCount != original.BlendShapeCount) {
-				throw new Exception($"Assertion failed: {newMesh.BlendShapeCount} == {original.BlendShapeCount}");
-			}
-			foreach (Vertex vertex in newMesh.Vertices) {
-				vertex.SetUV(uvChannel, vertex.GetUV(uvChannel) - key.UV, true);
-			}
-
-			mappedMeshes.Add(key, newMesh);
-			return newMesh;
-		}
-
-		void MapPointSubmesh(PointSubmesh sourcePoints) {
-			int subMeshIndex = sourcePoints.Index;
-			int pointCount = sourcePoints.Count;
-			for (int i = 0; i < pointCount; i++) {
-				Point point = sourcePoints.GetPoint(i);
-				UVTileKey key = UVTileKey.FromUV(point.Vertex.GetUV(uvChannel));
-				MeshX targetMesh = GetMeshForKey(key);
-				PointSubmesh targetPoints = targetMesh.TryGetSubmesh<PointSubmesh>(subMeshIndex);
-				targetPoints.AddPoint(point.VertexIndex);
-			}
-		}
-
-		//reused triangle lists to avoid allocations
-		List<UVTriangle> halfCutU = [], fullCutU = [], halfCutV = [], fullCutV = [];
-		List<(UVTileKey, UVTriangle)> tiledUVs = [];
-		Dictionary<(UVTileKey, VertexMixture), Vertex> knownVertexMixtures = [];
-		void MapTriangleSubmesh(TriangleSubmesh sourceTriangles) {
-			int subMeshIndex = sourceTriangles.Index;
-			int triangleCount = sourceTriangles.Count;
-			for (int i = 0; i < triangleCount; i++) {
-				Triangle sourceTriangle = sourceTriangles.GetTriangle(i);
-				var v0 = sourceTriangle.Vertex0;
-				var v1 = sourceTriangle.Vertex1;
-				var v2 = sourceTriangle.Vertex2;
-				var uv0 = v0.GetUV(uvChannel);
-				var uv1 = v1.GetUV(uvChannel);
-				var uv2 = v2.GetUV(uvChannel);
-				UVTriangle fullUVTriangle = new(uv0, uv1, uv2);
-				if (DebugHelpers.PrintTrace) {
-					DebugHelpers.Trace($"Triangle {i} ({v0.Index} {v1.Index} {v2.Index})");
+			Slot targetSlot = tileParentSlot.AddSlot($"{originalRenderer.Slot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
+			MeshRenderer newRenderer;
+			if (key == tileClosestToOrigin) {
+				//reuse existing MeshRenderer to maintain blendshape drives
+				originalRenderer = (MeshRenderer)targetSlot.MoveComponent((Component)originalRenderer);
+				newRenderer = originalRenderer;
+				if (meshCollider != null) {
+					targetSlot.MoveComponent(meshCollider);
 				}
-
-				tiledUVs.Clear();
-				Algorithm.SplitIntoTiles(fullUVTriangle, tiledUVs, halfCutU, fullCutU, halfCutV, fullCutV);
-
-				foreach ((UVTileKey key, UVTriangle tileTriangle) in tiledUVs) {
-					MeshX targetMesh = GetMeshForKey(key);
-					TriangleSubmesh targetTriangles = targetMesh.TryGetSubmesh<TriangleSubmesh>(subMeshIndex);
-
-					Vertex GetMappedVertex(TriangleUV uv) {
-						if (DebugHelpers.PrintTrace) {
-							DebugHelpers.Trace($"GetMappedVertex {uv}");
-						}
-						if (uv.Mixture == new float3(1, 0, 0)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v0 {v0.Position} {v0.UV0 - key.UV}");
-							}
-							return v0;
-						} else if (uv.Mixture == new float3(0, 1, 0)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v1 {v1.Position} {v1.UV0 - key.UV}");
-							}
-							return v1;
-						} else if (uv.Mixture == new float3(0, 0, 1)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v2 {v2.Position} {v2.UV0 - key.UV}");
-							}
-							return v2;
-						}
-						//(UVTileKey, VertexMixture) mixtureKey = (key, new VertexMixture(new int3(v0.Index, v1.Index, v2.Index), uv.Mixture).Canonalized());
-						//if (knownVertexMixtures.TryGetValue(mixtureKey, out var mixedVertex)) {
-						//	//avoided creating a duplicated vertex
-						//	return mixedVertex;
-						//}
-
-						var vertex = targetMesh.AddVertex();
-						Mixer.MixVertices(uv.Mixture, v0, v1, v2, uvChannel, key, vertex);
-						//knownVertexMixtures.Add(mixtureKey, vertex);
-						if (DebugHelpers.PrintTrace) {
-							DebugHelpers.Trace($"GetMappedVertex mixture {vertex.Position} {vertex.UV0}");
-						}
-						return vertex;
-					}
-					var outputVertex0 = GetMappedVertex(tileTriangle.UV0);
-					var outputVertex1 = GetMappedVertex(tileTriangle.UV1);
-					var outputVertex2 = GetMappedVertex(tileTriangle.UV2);
-					targetTriangles.AddTriangle(outputVertex0, outputVertex1, outputVertex2);
-					if (DebugHelpers.PrintTrace) {
-						DebugHelpers.Trace($"Added Triangle ({outputVertex0.Position} {outputVertex0.UV0})({outputVertex1.Position} {outputVertex1.UV0})({outputVertex2.Position} {outputVertex2.UV0})");
+			} else {
+				//CopyComponent((Component)...) makes this agnostic to the underlying renderer type.
+				newRenderer = (MeshRenderer)targetSlot.CopyComponent((Component)originalRenderer);
+				newRenderer.Mesh.Target = staticMesh;
+				if (meshCollider != null) {
+					MeshCollider newCollider = targetSlot.CopyComponent(meshCollider);
+					newCollider.Mesh.Target = staticMesh;
+				}
+				//TODO: make drives optional
+				newRenderer.EnabledField.DriveFrom(originalRenderer.EnabledField);
+				if (originalRenderer is SkinnedMeshRenderer originalSkinned && newRenderer is SkinnedMeshRenderer newSkinned) {
+					int blendshapeCount = Math.Min(originalSkinned.BlendShapeWeights.Count, newSkinned.BlendShapeWeights.Count);
+					for (int i = 0; i < blendshapeCount; i++) {
+						//TODO: option to only copy driven blendshapes
+						//TODO: option to duplicate drivers (?)
+						newSkinned.BlendShapeWeights.GetField(i).DriveFrom(originalSkinned.BlendShapeWeights.GetField(i));
 					}
 				}
 			}
 		}
-
-
-		List<MappedTriangle> mappedTriangles = [];
-		foreach (Submesh subMesh in original.Submeshes) {
-			switch (subMesh) {
-				case null:
-					continue;
-				case PointSubmesh sourcePoints:
-					MapPointSubmesh(sourcePoints);
-					break;
-				case TriangleSubmesh sourceTriangles:
-					MapTriangleSubmesh(sourceTriangles);
-					break;
-				default:
-					throw new NotSupportedException($"Submeshes of type '{subMesh.GetType()}' are not supported, yet!");
-			}
-		}
-		return mappedMeshes;
+		DebugHelpers.Debug("Successfully created MeshRenderers for split meshes!");
 	}
+
 }
