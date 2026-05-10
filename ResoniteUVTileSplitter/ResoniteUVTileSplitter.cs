@@ -83,34 +83,53 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 		//tiledMeshes.ForEach((mesh) => mesh.StripEmptyBones());
 		DebugHelpers.Debug("Saving split mesh assets...");
 		Dictionary<UVTileKey, Uri> meshURIs = [];
+
 		foreach ((UVTileKey key, MeshX mesh) in tiledMeshes) {
-			meshURIs[key] = await originalRenderer.Engine.LocalDB.SaveAssetAsync(mesh).ConfigureAwait(continueOnCapturedContext: false);
+			DebugHelpers.Debug($" Saving UV Tile {key.U},{key.V}...");
+			Uri uri = await originalRenderer.Engine.LocalDB.SaveAssetAsync(mesh).ConfigureAwait(continueOnCapturedContext: false);
+			meshURIs[key] = uri;
+			DebugHelpers.Debug($" Saved as {uri}.");
 		}
 		DebugHelpers.Debug("Split meshes are saved!");
+
 		await default(ToWorld);
+
+		if (originalRenderer.IsRemoved) {
+			DebugHelpers.Debug("Cannot attach split meshes, original MeshRenderer has been removed!");
+			return;
+		}
+
 		DebugHelpers.Debug("Attaching MeshRenderers for split meshes...");
 		MeshCollider meshCollider = originalRenderer.Slot.GetComponent<MeshCollider>((c) => c.Mesh.Target == originalRenderer.Mesh.Target);
 		IOrderedEnumerable<KeyValuePair<UVTileKey, Uri>> sortedMeshURIs = meshURIs.OrderBy((kv) => kv.Key.V).ThenBy((kv) => kv.Key.U);
 		UVTileKey tileClosestToOrigin = meshURIs.MinBy((kv) => Math.Abs(kv.Key.U) + Math.Abs(kv.Key.V)).Key;
 		Slot tileParentSlot = originalRenderer.Slot;
 		foreach ((UVTileKey key, Uri meshURI) in sortedMeshURIs) {
-			StaticMesh staticMesh = assetTarget.AttachStaticMesh(meshURI);
-			Slot targetSlot = tileParentSlot.AddSlot($"{originalRenderer.Slot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
+			DebugHelpers.Debug($" Attaching tile {key.U},{key.V}: {meshURI}...");
+			if (assetTarget == null || assetTarget.IsRemoved) {
+				DebugHelpers.Debug("SplitMeshByUVTilesTask: assetTarget == null || assetTarget.IsRemoved ?!");
+				assetTarget = originalRenderer.World.AssetsSlot.AddSlot($"{originalRenderer.Slot}");
+			}
+			StaticMesh staticMesh = assetTarget.AttachStaticMesh(meshURI, false);
+			Slot targetSlot = tileParentSlot.AddSlot($"{tileParentSlot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
 			MeshRenderer newRenderer;
+			MeshCollider? newCollider;
 			if (key == tileClosestToOrigin) {
 				//reuse existing MeshRenderer to maintain blendshape drives
 				originalRenderer = (MeshRenderer)targetSlot.MoveComponent((Component)originalRenderer);
 				newRenderer = originalRenderer;
 				if (meshCollider != null) {
-					targetSlot.MoveComponent(meshCollider);
+					newCollider = targetSlot.MoveComponent(meshCollider);
+				} else {
+					newCollider = null;
 				}
 			} else {
 				//CopyComponent((Component)...) makes this agnostic to the underlying renderer type.
 				newRenderer = (MeshRenderer)targetSlot.CopyComponent((Component)originalRenderer);
-				newRenderer.Mesh.Target = staticMesh;
 				if (meshCollider != null) {
-					MeshCollider newCollider = targetSlot.CopyComponent(meshCollider);
-					newCollider.Mesh.Target = staticMesh;
+					newCollider = targetSlot.CopyComponent(meshCollider);
+				} else {
+					newCollider = null;
 				}
 				//TODO: make drives optional
 				newRenderer.EnabledField.DriveFrom(originalRenderer.EnabledField);
@@ -122,6 +141,10 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 						newSkinned.BlendShapeWeights.GetField(i).DriveFrom(originalSkinned.BlendShapeWeights.GetField(i));
 					}
 				}
+			}
+			newRenderer.Mesh.Target = staticMesh;
+			if (newCollider != null) {
+				newCollider.Mesh.Target = staticMesh;
 			}
 		}
 		DebugHelpers.Debug("Successfully created MeshRenderers for split meshes!");
