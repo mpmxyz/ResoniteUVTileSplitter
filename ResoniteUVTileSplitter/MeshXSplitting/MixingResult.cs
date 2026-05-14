@@ -1,4 +1,4 @@
-﻿namespace ResoniteUVTileSplitter;
+﻿namespace ResoniteUVTileSplitter.MeshXSplitting;
 
 /// <summary>
 /// Diagnostic output of Mixer.MixVertices to indicate if it could be completed without issues.

@@ -14,18 +14,21 @@ internal static class Algorithm {
 	/// </summary>
 	/// <param name="originalMesh">mesh to be split</param>
 	/// <param name="uvChannel">UV channel to split (allowed values: 0 to 3 inclusive)</param>
+	/// <param name="trianglesWithIssues">Secondary output: a dictionary containing all problematic triangles mapped to their errors.</param>
 	/// <returns>A mapping from UV tiles to their corresponding meshes</returns>
 	/// <exception cref="NotSupportedException">If submeshes other than PointSubmesh or TriangleSubmesh are found.</exception>
-	internal static Dictionary<UVTileKey, MeshX> SplitMeshByUVTiles(MeshX originalMesh, int uvChannel) {
-		DebugHelpers.Debug($"Splitting a Mesh with {originalMesh.VertexCount} vertices, {originalMesh.TotalPointCount} points and {originalMesh.TotalTriangleCount} triangles...");
+	internal static Dictionary<UVTileKey, MeshX> SplitMeshByUVTiles(MeshX originalMesh, int uvChannel, out Dictionary<Triangle, MixingResult> trianglesWithIssues) {
+		DebugHelpers.Msg($"Splitting a Mesh with {originalMesh.VertexCount} vertices, {originalMesh.TotalPointCount} points and {originalMesh.TotalTriangleCount} triangles...");
 		if (uvChannel < 0 || uvChannel > 3) {
 			throw new ArgumentOutOfRangeException(nameof(uvChannel), uvChannel, "Only UV-Channels 0 to 3 inclusive are supported.");
 		}
 		Dictionary<UVTileKey, MeshX> mappedMeshes = [];
+		trianglesWithIssues = [];
+		Dictionary<Triangle, MixingResult> _trianglesWithIssues = trianglesWithIssues;
 
 		MeshX GetMeshForTile(UVTileKey key) {
-			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"GetMeshForKey {key}");
+			if (DebugHelpers.IsDebugEnabled) {
+				DebugHelpers.Debug($"GetMeshForKey {key}");
 			}
 			if (mappedMeshes.TryGetValue(key, out MeshX? value)) return value;
 			var newMesh = new MeshX(originalMesh);
@@ -46,7 +49,7 @@ internal static class Algorithm {
 		void MapPointSubmesh(PointSubmesh sourcePoints) {
 			int subMeshIndex = sourcePoints.Index;
 			int pointCount = sourcePoints.Count;
-			DebugHelpers.Debug($"Splitting PointSubmesh {subMeshIndex} with {pointCount} points...");
+			DebugHelpers.Msg($"Splitting PointSubmesh {subMeshIndex} with {pointCount} points...");
 			for (int i = 0; i < pointCount; i++) {
 				Point point = sourcePoints.GetPoint(i);
 				UVTileKey key = UVTileKey.FromPoint(point.Vertex.GetUV(uvChannel));
@@ -63,7 +66,7 @@ internal static class Algorithm {
 		void MapTriangleSubmesh(TriangleSubmesh sourceTriangles) {
 			int subMeshIndex = sourceTriangles.Index;
 			int triangleCount = sourceTriangles.Count;
-			DebugHelpers.Debug($"Splitting TriangleSubmesh {subMeshIndex} with {triangleCount} triangles...");
+			DebugHelpers.Msg($"Splitting TriangleSubmesh {subMeshIndex} with {triangleCount} triangles...");
 			for (int i = 0; i < triangleCount; i++) {
 				Triangle sourceTriangle = sourceTriangles.GetTriangle(i);
 				var v0 = sourceTriangle.Vertex0;
@@ -73,8 +76,8 @@ internal static class Algorithm {
 				var uv1 = v1.GetUV(uvChannel);
 				var uv2 = v2.GetUV(uvChannel);
 				MixedUVTriangle fullUVTriangle = new(uv0, uv1, uv2);
-				if (DebugHelpers.PrintTrace) {
-					DebugHelpers.Trace($"Triangle {i} ({v0.Index} {v1.Index} {v2.Index})");
+				if (DebugHelpers.IsDebugEnabled) {
+					DebugHelpers.Debug($"Triangle {i} ({v0.Index} {v1.Index} {v2.Index})");
 				}
 
 				tiledUVs.Clear();
@@ -89,24 +92,24 @@ internal static class Algorithm {
 					var vTarget2 = targetMesh.GetVertex(v2.Index);
 
 					MixingResult TryGetMappedVertex(MixedUV uv, out Vertex vertex) {
-						if (DebugHelpers.PrintTrace) {
-							DebugHelpers.Trace($"GetMappedVertex {uv}");
+						if (DebugHelpers.IsDebugEnabled) {
+							DebugHelpers.Debug($"GetMappedVertex {uv}");
 						}
 						if (uv.Mixture == new float3(1, 0, 0)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v0 {vTarget0.Position} {vTarget0.UV0}");
+							if (DebugHelpers.IsDebugEnabled) {
+								DebugHelpers.Debug($"GetMappedVertex v0 {vTarget0.Position} {vTarget0.UV0}");
 							}
 							vertex = vTarget0;
 							return MixingResult.Ok;
 						} else if (uv.Mixture == new float3(0, 1, 0)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v1 {vTarget1.Position} {vTarget1.UV0}");
+							if (DebugHelpers.IsDebugEnabled) {
+								DebugHelpers.Debug($"GetMappedVertex v1 {vTarget1.Position} {vTarget1.UV0}");
 							}
 							vertex = vTarget1;
 							return MixingResult.Ok;
 						} else if (uv.Mixture == new float3(0, 0, 1)) {
-							if (DebugHelpers.PrintTrace) {
-								DebugHelpers.Trace($"GetMappedVertex v2 {vTarget2.Position} {vTarget2.UV0}");
+							if (DebugHelpers.IsDebugEnabled) {
+								DebugHelpers.Debug($"GetMappedVertex v2 {vTarget2.Position} {vTarget2.UV0}");
 							}
 							vertex = vTarget2;
 							return MixingResult.Ok;
@@ -115,15 +118,15 @@ internal static class Algorithm {
 						if (knownVertexMixtures.TryGetValue(mixtureKey, out var knowResult)) {
 							//avoided creating a duplicated vertex
 							vertex = knowResult.vertex;
-							DebugHelpers.Trace($"GetMappedVertex known mixture {vertex.Position} {vertex.UV0} {knowResult.result}");
+							DebugHelpers.Debug($"GetMappedVertex known mixture {vertex.Position} {vertex.UV0} {knowResult.result}");
 							return knowResult.result;
 						}
 
 						vertex = targetMesh.AddVertex();
 						var result = Mixer.MixVertices(uv.Mixture, vTarget0, vTarget1, vTarget2, vertex);
 						knownVertexMixtures.Add(mixtureKey, (vertex, result));
-						if (DebugHelpers.PrintTrace) {
-							DebugHelpers.Trace($"GetMappedVertex new mixture {vertex.Position} {vertex.UV0} {result}");
+						if (DebugHelpers.IsDebugEnabled) {
+							DebugHelpers.Debug($"GetMappedVertex new mixture {vertex.Position} {vertex.UV0} {result}");
 						}
 						return result;
 					}
@@ -133,14 +136,14 @@ internal static class Algorithm {
 					triangleResult |= TryGetMappedVertex(tileTriangle.UV1, out var outputVertex1);
 					triangleResult |= TryGetMappedVertex(tileTriangle.UV2, out var outputVertex2);
 					targetTriangles.AddTriangle(outputVertex0, outputVertex1, outputVertex2);
-					if (DebugHelpers.PrintTrace) {
-						DebugHelpers.Trace($"Added Triangle ({outputVertex0.Position} {outputVertex0.UV0})({outputVertex1.Position} {outputVertex1.UV0})({outputVertex2.Position} {outputVertex2.UV0})");
+					if (DebugHelpers.IsDebugEnabled) {
+						DebugHelpers.Debug($"Added Triangle ({outputVertex0.Position} {outputVertex0.UV0})({outputVertex1.Position} {outputVertex1.UV0})({outputVertex2.Position} {outputVertex2.UV0})");
 					}
 					if (triangleResult != MixingResult.Ok){
 						if ((triangleResult & MixingResult.TooManyBones) != 0) {
 							UniLog.Warning($"Mixing vertices {sourceTriangle.Vertex0Index}, {sourceTriangle.Vertex1Index} and {sourceTriangle.Vertex2Index} resulted in bone bindings with more than the maximum number of 4 bones. This may cause degraded visuals.");
 						}
-						//TODO: add to list, then output status to the user
+						_trianglesWithIssues[sourceTriangle] = _trianglesWithIssues.GetValueOrDefault(sourceTriangle) | triangleResult;
 					}
 				}
 			}
@@ -161,7 +164,7 @@ internal static class Algorithm {
 			}
 		}
 
-		DebugHelpers.Debug($"Stripping unused vertices...");
+		DebugHelpers.Msg($"Stripping unused vertices...");
 
 
 		foreach ((UVTileKey key, MeshX mesh) in mappedMeshes.ToList()) {
@@ -169,7 +172,7 @@ internal static class Algorithm {
 		}
 
 		string tileDescription= string.Join("", mappedMeshes.Select((e) => $"\n {e.Key.U},{e.Key.V}: {e.Value.VertexCount} vertices, {e.Value.TotalTriangleCount} triangles")); ;
-		DebugHelpers.Debug($"Splitting resulted in {mappedMeshes.Count} meshes. Tiles:{tileDescription}");
+		DebugHelpers.Msg($"Splitting resulted in {mappedMeshes.Count} meshes. Tiles:{tileDescription}");
 
 		return mappedMeshes;
 	}

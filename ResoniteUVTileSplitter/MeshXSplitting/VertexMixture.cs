@@ -1,6 +1,7 @@
 ﻿using Elements.Core;
 
 namespace ResoniteUVTileSplitter.MeshXSplitting;
+
 /// <summary>
 /// This object represents a mixture of vertices from a given mesh.
 /// It is used as a key to avoid creating duplicate vertices from the same mixture.

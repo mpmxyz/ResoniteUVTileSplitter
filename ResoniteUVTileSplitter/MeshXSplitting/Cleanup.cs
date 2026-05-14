@@ -1,6 +1,10 @@
 ﻿using Elements.Assets;
 
 namespace ResoniteUVTileSplitter.MeshXSplitting;
+
+/// <summary>
+/// This class contains post-processing methods that clean up meshes.
+/// </summary>
 internal static class Cleanup {
 	/// <summary>
 	/// Removes unused vertices from the mesh.
@@ -9,7 +13,6 @@ internal static class Cleanup {
 	/// <param name="mesh">The mesh to be optimized.</param>
 	/// <returns>A mesh that does not contain unused vertices (currently the same object, may be a new object in the future)</returns>
 	internal static MeshX StripUnusedVertices(MeshX mesh) {
-
 		GeometryMask mask = new(mesh);
 		for (int i = 0; i < mesh.VertexCount; i++) {
 			mask.ClearVertex(i);
@@ -36,8 +39,8 @@ internal static class Cleanup {
 			}
 		}
 
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Removed {nRemoved} unused vertices.");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Removed {nRemoved} unused vertices.");
 		}
 
 		return mesh;

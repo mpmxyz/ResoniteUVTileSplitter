@@ -30,7 +30,6 @@ internal record struct MixedUVTriangle(MixedUV UV0, MixedUV UV1, MixedUV UV2) {
 	/// </summary>
 	internal readonly URange URange {
 		get {
-
 			return new URange(RangeFromElements(UV0.U, UV1.U, UV2.U));
 		}
 	}
@@ -40,7 +39,6 @@ internal record struct MixedUVTriangle(MixedUV UV0, MixedUV UV1, MixedUV UV2) {
 	/// </summary>
 	internal readonly VRange VRange {
 		get {
-
 			return new VRange(RangeFromElements(UV0.V, UV1.V, UV2.V));
 		}
 	}
@@ -55,7 +53,7 @@ internal record struct MixedUVTriangle(MixedUV UV0, MixedUV UV1, MixedUV UV2) {
 	private static int2 RangeFromElements(float a, float b, float c) {
 		var uvMin = Math.Min(a, Math.Min(b, c));
 		var uvMax = Math.Max(a, Math.Max(b, c));
-		//TODO: degenerate edge cases, limit value range to prevent excessive mesh creation
+		//TODO: handle degenerate edge cases, limit value range to prevent excessive mesh creation
 		var uvFloor = MathX.FloorToInt(uvMin);
 		var uvCeil = MathX.CeilToInt(uvMax);
 		return new int2(uvFloor, Math.Max(uvCeil - 1, uvFloor));

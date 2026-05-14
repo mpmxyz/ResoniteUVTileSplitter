@@ -33,14 +33,14 @@ internal static class Algorithm {
 		List<MixedUVTriangle> fullCutV) {
 		// split by U, each result is split by V (only executes the splits that are required)
 		//TODO: check for stack allocated alternative to CutUV lists
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"SplitIntoTiles {initial}, {tiles.Count}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"SplitIntoTiles {initial}, {tiles.Count}");
 		}
 
 		//processes a single tile of triangles
 		void ProcessUVTile(UVTileKey tile, List<MixedUVTriangle> triangles) {
-			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"ProcessUVTile {tile.U}, {tile.V}, {triangles.Count}");
+			if (DebugHelpers.IsDebugEnabled) {
+				DebugHelpers.Debug($"ProcessUVTile {tile.U}, {tile.V}, {triangles.Count}");
 			}
 			foreach(MixedUVTriangle triangle in triangles) {
 				tiles.Add((tile, triangle));
@@ -50,8 +50,8 @@ internal static class Algorithm {
 		//processes a whole column of triangles within the same range of u coordinates
 		//splits it into UV tiles
 		void ProcessUColumn(int uIndex, List<MixedUVTriangle> uSlice) {
-			if (DebugHelpers.PrintTrace) {
-				DebugHelpers.Trace($"ProcessUColumn {uIndex}, {uSlice.Count}");
+			if (DebugHelpers.IsDebugEnabled) {
+				DebugHelpers.Debug($"ProcessUColumn {uIndex}, {uSlice.Count}");
 			}
 			foreach (MixedUVTriangle sliceTriangle in uSlice) {
 				VRange vRange = sliceTriangle.VRange;
@@ -78,8 +78,8 @@ internal static class Algorithm {
 		URange uRange = initial.URange;
 		if (uRange.HasBoundaries){
 			foreach (USegment uPiece in uRange.Segments) {
-				if (DebugHelpers.PrintTrace) {
-					DebugHelpers.Trace($"uPiece {uPiece.Index}");
+				if (DebugHelpers.IsDebugEnabled) {
+					DebugHelpers.Debug($"uPiece {uPiece.Index}");
 				}
 				halfCutU.Clear();
 				fullCutU.Clear();
@@ -95,8 +95,8 @@ internal static class Algorithm {
 			fullCutU.Add(initial);
 			ProcessUColumn(uRange.Min, fullCutU);
 		}
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Exit SplitIntoTiles {initial}, {tiles.Count}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Exit SplitIntoTiles {initial}, {tiles.Count}");
 		}
 	}
 
@@ -108,14 +108,14 @@ internal static class Algorithm {
 	/// <param name="positiveHalves">collection that is appended to with triangles that are both part of the original triangle and the half-plane</param>
 	internal static void Cut(MixedUVTriangle triangle, UVTileBoundary boundary, ICollection<MixedUVTriangle> positiveHalves) {
 		var initialCount = positiveHalves.Count;
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Cut {triangle}, {boundary}, {positiveHalves.Count}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Cut {triangle}, {boundary}, {positiveHalves.Count}");
 		}
 		Cut(triangle, boundary.Origin, boundary.Normal, positiveHalves);
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Exit Cut {triangle}, {boundary}, {positiveHalves.Count}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Exit Cut {triangle}, {boundary}, {positiveHalves.Count}");
 			foreach (var outputTriangle in positiveHalves.Skip(initialCount)) {
-				DebugHelpers.Trace($" {outputTriangle}");
+				DebugHelpers.Debug($" {outputTriangle}");
 			}
 		}
 	}

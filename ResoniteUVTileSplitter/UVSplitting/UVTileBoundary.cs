@@ -1,6 +1,7 @@
 ﻿using Elements.Core;
 
 namespace ResoniteUVTileSplitter.UVSplitting;
+
 /// <summary>
 /// Represents a line that cut through a triangle / a half-plane that can be intersected with a triangle.
 /// </summary>

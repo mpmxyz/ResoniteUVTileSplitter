@@ -1,4 +1,5 @@
 using Elements.Assets;
+using Elements.Core;
 
 using FrooxEngine;
 using FrooxEngine.UIX;
@@ -7,34 +8,27 @@ using HarmonyLib;
 
 using ResoniteModLoader;
 
-using ResoniteUVTileSplitter.UVSplitting;
-
 namespace ResoniteUVTileSplitter;
 
 public class ResoniteUVTileSplitter : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.0"; //Changing the version here updates it in all locations needed
+	internal const string VERSION_CONSTANT = "1.0.0";
 	public override string Name => "ResoniteUVTileSplitter";
 	public override string Author => "mpmxyz";
 	public override string Version => VERSION_CONSTANT;
 	public override string Link => "https://github.com/mpmxyz/ResoniteUVTileSplitter/";
+
+	[AutoRegisterConfigKey]
+	private static readonly ModConfigurationKey<bool> allowSharing = new("allowSharing", "Do you allow other users to use your mod instance?", () => false);
 
 	public override void OnEngineInit() {
 		Harmony harmony = new("mpmxyz.ResoniteUVTileSplitter");
 		harmony.PatchAll();
 	}
 
-	[HarmonyPatch]
-	class MeshRenderer_PrivateMethods {
-		[HarmonyPatch(typeof(MeshRenderer), "RunProcessingTask")]
-		[HarmonyReversePatch]
-		public static Task RunProcessingTask(MeshRenderer __instance, IButton button, Func<MeshX, Slot, Task> process) => throw new NotImplementedException("Filled by Harmony");
-
-		[HarmonyPatch(typeof(MeshRenderer), "AttachSplitMesh")]
-		[HarmonyReversePatch]
-		public static MeshRenderer AttachSplitMesh(MeshRenderer __instance, Slot slot, MeshX mesh) => throw new NotImplementedException("Filled by Harmony");
-	}
-
-	//Example of how a HarmonyPatch can be formatted, Note that the following isn't a real patch and will not compile.
+	/// <summary>
+	/// Attaches buttons to trigger UV tile splitting to inspector panels.
+	/// The buttons can be used by all users in a session as long as the creator of the inspector UI is still within the session.
+	/// </summary>
 	[HarmonyPatch(typeof(MeshRenderer), "BuildInspectorUI")]
 	class MeshRenderer_BuildInspectorUI_Patch {
 		public static void Postfix(MeshRenderer __instance, UIBuilder ui) {
@@ -45,109 +39,132 @@ public class ResoniteUVTileSplitter : ResoniteMod {
 		}
 
 		private static void AddSplitButton(MeshRenderer __instance, UIBuilder uiBuilder, int uvChannel) {
-			bool previousPressed = false;
 			Button splitMeshButton = uiBuilder.Button($"Split UV Tiles (UV Channel: {uvChannel})");
 			splitMeshButton.Slot.DestroyWhenUserLeaves(__instance.LocalUser);
-			//listening to IsPressed allows other users to execute the action
-			splitMeshButton.IsPressed.OnValueChange += (isPressed) => {
-				if (isPressed.Value == previousPressed) {
+
+			Slot contextMenuItems = splitMeshButton.Slot;
+			ContextMenuSubmenu submenu = splitMeshButton.Slot.AttachComponent<ContextMenuSubmenu>(beforeAttach: (c) => {
+				c.ItemsRoot.Target = contextMenuItems;
+			});
+
+			void TryRunAction(bool createDrives) {
+				if (!splitMeshButton.Enabled) {
+					//disabled state of main button acts as a gatekeeper for currently active processing
 					return;
 				}
-				previousPressed = isPressed.Value;
-				if (isPressed.Value) {
-					MeshRenderer_PrivateMethods.RunProcessingTask(__instance, splitMeshButton, (original, assetTarget) => {
-						return SplitMeshByUVTilesTask(__instance, original, assetTarget, uvChannel);
+
+				RunProcessingTask(__instance, splitMeshButton, (original, assetTarget, setLabel) => {
+					return MeshRendererSplitting.Algorithm.SplitMeshByUVTilesTask(__instance, original, uvChannel, createDrives, assetTarget, setLabel);
+				});
+			}
+
+			//listening to a field allows other users to execute the action
+			ValueField<bool?> actionField = contextMenuItems.AttachComponent<ValueField<bool?>>(beforeAttach: (c) => {
+				c.Value.OnValueChange += (field) => {
+					bool? nextAction = field.Value;
+					if (!nextAction.HasValue) {
+						//only non-null values represent an action (null is default state)
+						return;
+					}
+					bool createDrives = nextAction.Value;
+					//reset field so it can listen to another action
+					field.World.RunSynchronously(() => {
+						field.Value = null;
 					});
-				}
-			};
+
+					if (!allowSharing.Value) {
+						//prevent other users from running the action
+						return;
+					}
+
+					TryRunAction(createDrives);
+				};
+			});
+			void CreateSubmenuItem(bool createDrives) {
+				Slot itemSlot = contextMenuItems.AddSlot($"Item");
+				ContextMenuItemSource itemSource = itemSlot.AttachComponent<ContextMenuItemSource>(beforeAttach: (c) => {
+					c.LabelText = createDrives ? "With Drives" : "Without Drives";
+					c.Color.Value = createDrives ? colorX.Green : colorX.Red;
+					c.CloseMenuOnPress.Value = true;
+				});
+				ButtonValueSet<bool?> syncedSubmenuAction = itemSlot.AttachComponent<ButtonValueSet<bool?>>(beforeAttach: (c) => {
+					c.TargetValue.Target = actionField.Value;
+					c.SetValue.Value = createDrives;
+				});
+				//Other users use the synced action. (may be disabled by mod config)
+				syncedSubmenuAction.EnabledField.OverrideForUser(itemSlot.LocalUser, false);
+				//Local user triggers action directly.
+				itemSource.LocalPressed += (button, eventData) => { TryRunAction(createDrives); };
+			}
+			CreateSubmenuItem(true);
+			CreateSubmenuItem(false);
 		}
 	}
 
 	/// <summary>
-	/// This will split the <paramref name="originalMesh"/> into tiles and ensure a MeshRenderer based on <paramref name="originalRenderer"/> for each tile.
-	/// The original renderer will be moved and used to display tile (0,0).
-	/// The enabled field and blendshape values of duplicated renderers will be driven based on the original renderer.
+	/// This method emulates MeshRenderer.RunProcessingTask to avoid a dependency on a private FrooxEngine implementation.
+	/// It ensures button locking and communicates the status to the user.
+	/// Additionally it prepares a slot for assets to be collected in. (avoids jumping to world at the start of the task)
 	/// </summary>
-	/// <param name="originalRenderer">The (Skinned-)MeshRenderer that will be duplicated to display all tiles</param>
-	/// <param name="originalMesh">The mesh that should be split</param>
-	/// <param name="assetTarget">Slot that created assets are attached to</param>
-	/// <param name="uvChannel">UV-Channel that decides on how to split</param>
-	/// <returns></returns>
-	static async Task SplitMeshByUVTilesTask(MeshRenderer originalRenderer, MeshX originalMesh, Slot assetTarget, int uvChannel) {
-		Dictionary<UVTileKey, MeshX> tiledMeshes = MeshXSplitting.Algorithm.SplitMeshByUVTiles(originalMesh, uvChannel);
-		if (tiledMeshes.Count == 0) {
-			DebugHelpers.Debug("No meshes in split result -> nothing to do");
-			return;
-		}
-		//tiledMeshes.ForEach((mesh) => mesh.StripEmptyBlendshapes());
-		//tiledMeshes.ForEach((mesh) => mesh.StripEmptyBones());
-		DebugHelpers.Debug("Saving split mesh assets...");
-		Dictionary<UVTileKey, Uri> meshURIs = [];
-
-		foreach ((UVTileKey key, MeshX mesh) in tiledMeshes) {
-			DebugHelpers.Debug($" Saving UV Tile {key.U},{key.V}...");
-			Uri uri = await originalRenderer.Engine.LocalDB.SaveAssetAsync(mesh).ConfigureAwait(continueOnCapturedContext: false);
-			meshURIs[key] = uri;
-			DebugHelpers.Debug($" Saved as {uri}.");
-		}
-		DebugHelpers.Debug("Split meshes are saved!");
-
-		await default(ToWorld);
-
-		if (originalRenderer.IsRemoved) {
-			DebugHelpers.Debug("Cannot attach split meshes, original MeshRenderer has been removed!");
-			return;
-		}
-
-		DebugHelpers.Debug("Attaching MeshRenderers for split meshes...");
-		MeshCollider meshCollider = originalRenderer.Slot.GetComponent<MeshCollider>((c) => c.Mesh.Target == originalRenderer.Mesh.Target);
-		IOrderedEnumerable<KeyValuePair<UVTileKey, Uri>> sortedMeshURIs = meshURIs.OrderBy((kv) => kv.Key.V).ThenBy((kv) => kv.Key.U);
-		UVTileKey tileClosestToOrigin = meshURIs.MinBy((kv) => Math.Abs(kv.Key.U) + Math.Abs(kv.Key.V)).Key;
-		Slot tileParentSlot = originalRenderer.Slot;
-		foreach ((UVTileKey key, Uri meshURI) in sortedMeshURIs) {
-			DebugHelpers.Debug($" Attaching tile {key.U},{key.V}: {meshURI}...");
-			if (assetTarget == null || assetTarget.IsRemoved) {
-				DebugHelpers.Debug("SplitMeshByUVTilesTask: assetTarget == null || assetTarget.IsRemoved ?!");
-				assetTarget = originalRenderer.World.AssetsSlot.AddSlot($"{originalRenderer.Slot}");
-			}
-			StaticMesh staticMesh = assetTarget.AttachStaticMesh(meshURI, false);
-			Slot targetSlot = tileParentSlot.AddSlot($"{tileParentSlot.Name} - {1001 + key.U + 10 * key.V} / ({key.U},{key.V})");
-			MeshRenderer newRenderer;
-			MeshCollider? newCollider;
-			if (key == tileClosestToOrigin) {
-				//reuse existing MeshRenderer to maintain blendshape drives
-				originalRenderer = (MeshRenderer)targetSlot.MoveComponent((Component)originalRenderer);
-				newRenderer = originalRenderer;
-				if (meshCollider != null) {
-					newCollider = targetSlot.MoveComponent(meshCollider);
-				} else {
-					newCollider = null;
+	/// <param name="renderer">MeshRenderer the operation is applied on</param>
+	/// <param name="button">Button that is updated with the state of processing</param>
+	/// <param name="process">Action that is applied on the renderer</param>
+	/// <returns>The task running the processing action</returns>
+	private static Task RunProcessingTask(MeshRenderer renderer, IButton button, Func<MeshX, Slot, Action<string>, Task> process) {
+		void SetLabel(string text) {
+			DebugHelpers.Msg(text);
+			button.RunSynchronously(() => {
+				if (!button.IsRemoved) {
+					button.LabelText = text;
 				}
-			} else {
-				//CopyComponent((Component)...) makes this agnostic to the underlying renderer type.
-				newRenderer = (MeshRenderer)targetSlot.CopyComponent((Component)originalRenderer);
-				if (meshCollider != null) {
-					newCollider = targetSlot.CopyComponent(meshCollider);
-				} else {
-					newCollider = null;
+			}, true);
+		}
+		void SetAvailable(bool enabled) {
+			button.RunSynchronously(() => {
+				if (!button.IsRemoved) {
+					button.Enabled = enabled;
 				}
-				//TODO: make drives optional
-				newRenderer.EnabledField.DriveFrom(originalRenderer.EnabledField);
-				if (originalRenderer is SkinnedMeshRenderer originalSkinned && newRenderer is SkinnedMeshRenderer newSkinned) {
-					int blendshapeCount = Math.Min(originalSkinned.BlendShapeWeights.Count, newSkinned.BlendShapeWeights.Count);
-					for (int i = 0; i < blendshapeCount; i++) {
-						//TODO: option to only copy driven blendshapes
-						//TODO: option to duplicate drivers (?)
-						newSkinned.BlendShapeWeights.GetField(i).DriveFrom(originalSkinned.BlendShapeWeights.GetField(i));
-					}
+			}, true);
+		}
+		SetAvailable(false);
+		Slot assetSlot = renderer.World.AssetsSlot.AddSlot(renderer.Slot.Name + " - UV Tiles");
+
+		return renderer.StartGlobalTask(async () => {
+			AssetRef<Mesh> meshRef = renderer.Mesh;
+			object? mutex = new();
+			try {
+				IAssetProvider<Mesh> assetProvider = meshRef.Target;
+				if (assetProvider == null) {
+					SetLabel("ERROR: MeshRenderer has no mesh!");
+					return;
+				}
+
+				SetLabel("Waiting for mesh to be loaded...");
+				while (!assetProvider.IsAssetAvailable) {
+					await default(NextUpdate);
+				}
+
+				SetLabel("Starting background task...");
+				await default(ToBackground);
+
+				SetLabel("Copying asset...");
+				Mesh asset = assetProvider.Asset;
+				await asset.RequestReadLock(mutex).ConfigureAwait(false);
+				MeshX copy = new(asset.Data);
+				asset.ReleaseReadLock(mutex);
+				mutex = null;
+
+				SetLabel("Processing...");
+				await process(copy, assetSlot, SetLabel);
+			} catch (Exception e) {
+				SetLabel($"ERROR: {e} - {e.Message}");
+				Error($"Unexpected exception during mesh processing:\n{e}");
+			} finally {
+				SetAvailable(true);
+				if (mutex != null) {
+					meshRef.Asset.ReleaseReadLock(mutex);
 				}
 			}
-			newRenderer.Mesh.Target = staticMesh;
-			if (newCollider != null) {
-				newCollider.Mesh.Target = staticMesh;
-			}
-		}
-		DebugHelpers.Debug("Successfully created MeshRenderers for split meshes!");
+		});
 	}
-
 }

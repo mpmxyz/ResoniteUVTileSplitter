@@ -2,6 +2,7 @@
 using Elements.Core;
 
 namespace ResoniteUVTileSplitter.MeshXSplitting;
+
 /// <summary>
 /// This class contains methods that are used to mix three vertices together.
 /// This is important to reconstruct the new mesh triangles after creating the tiles in UV space.
@@ -20,8 +21,8 @@ internal static class Mixer {
 	/// <param name="outputVertex">Output vertex -> The vertex this value represents is written to.</param>
 	/// <returns>information about the success of the mixing operation</returns>
 	internal static MixingResult MixVertices(float3 coefficients, Vertex a, Vertex b, Vertex c, Vertex outputVertex) {
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"MixVertices {coefficients}, {a.Position}/{b.Position}/{c.Position}, {a.UV0}/{b.UV0}/{c.UV0}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"MixVertices {coefficients}, {a.Position}/{b.Position}/{c.Position}, {a.UV0}/{b.UV0}/{c.UV0}");
 		}
 		MixingResult result = MixingResult.Ok;
 		var sourceMesh = a.Mesh;
@@ -54,8 +55,8 @@ internal static class Mixer {
 		}
 
 		MixBlendshapes(coefficients, a, b, c, outputVertex);
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"MixVertices result {outputVertex.Position}, {outputVertex.UV0}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"MixVertices result {outputVertex.Position}, {outputVertex.UV0}");
 		}
 		return result;
 	}
@@ -162,16 +163,16 @@ internal static class Mixer {
 				accumulatedValue = Coder<T>.Lerp(accumulatedValue, target, coefficient / accumulatedCoefficients);
 			}
 		}
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Mixing {a} {b} {c} with {coefficients}");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Mixing {a} {b} {c} with {coefficients}");
 		}
 
 		Accumulate(coefficients.x, a);
 		Accumulate(coefficients.y, b);
 		Accumulate(coefficients.z, c);
 
-		if (DebugHelpers.PrintTrace) {
-			DebugHelpers.Trace($"Result {accumulatedValue} (sum(coefficients)={accumulatedCoefficients})");
+		if (DebugHelpers.IsDebugEnabled) {
+			DebugHelpers.Debug($"Result {accumulatedValue} (sum(coefficients)={accumulatedCoefficients})");
 		}
 
 		return accumulatedValue;
