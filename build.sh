@@ -10,7 +10,6 @@ wget https://raw.githubusercontent.com/mpmxyz/ResoniteAssemblies/refs/heads/main
 unzip Assemblies.zip || exit 3
 cd "$BUILD_PATH" || exit 4
 
-ls
 # download packages
 dotnet restore || exit 5
 
