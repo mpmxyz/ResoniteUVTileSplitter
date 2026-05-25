@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version
-        required: true
+        description: Version Override
+        required: false
         type: string
 
 jobs:
