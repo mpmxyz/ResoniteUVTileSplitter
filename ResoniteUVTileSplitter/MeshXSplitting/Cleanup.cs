@@ -11,12 +11,13 @@ internal static class Cleanup {
 	/// This step is important to keep the assumptions of Renderite regarding the choice of index buffer format.
 	/// </summary>
 	/// <param name="mesh">The mesh to be optimized.</param>
-	/// <returns>A mesh that does not contain unused vertices (currently the same object, may be a new object in the future)</returns>
+	/// <returns>A mesh that does not contain unused vertices</returns>
 	internal static MeshX StripUnusedVertices(MeshX mesh) {
+		int originalVertexCount = mesh.VertexCount;
+
 		GeometryMask mask = new(mesh);
-		for (int i = 0; i < mesh.VertexCount; i++) {
-			mask.ClearVertex(i);
-		}
+		mask.InitializePrimitiveMasks();
+
 		foreach (Submesh submesh in mesh.Submeshes) {
 			int indexCount = submesh.IndicieCount;
 			for (int i = 0; i < indexCount; i++) {
@@ -25,30 +26,20 @@ internal static class Cleanup {
 					mask.MaskVertex(vertexIndex);
 				}
 			}
-		}
-		int nRemoved = 0;
-		for (int i = mesh.VertexCount - 1; i >= 0; i--) {
-			if (!mask.IsVertexMasked(i)) {
-				int removeTo = i;
-				while(i > 0 && !mask.IsVertexMasked(i - 1)) {
-					i--;
-				}
-				int count = removeTo - i + 1;
-				nRemoved += count;
-				mesh.RemoveVertices(i, count);
+			for (int i = 0; i < submesh.Count; i++) {
+				mask.MaskPrimitive(submesh.Index, i);
 			}
 		}
+
+		MeshX newMesh = new();
+		newMesh.Copy(mesh, null, mask);
+		
+		int nRemoved = originalVertexCount - newMesh.VertexCount;
 
 		if (DebugHelpers.IsDebugEnabled) {
 			DebugHelpers.Debug($"Removed {nRemoved} unused vertices.");
 		}
 
-		return mesh;
-
-
-		//mask.MaskPrimitivesFromVertices();
-		//var clone = new MeshX(mesh);
-		//clone.Copy(mesh, null, mask);
-		//return clone;
+		return newMesh;
 	}
 }
