@@ -1,0 +1,16 @@
+{
+	"name": "ResoniteUVTileSplitter",
+	"id": "mpmxyz.ResoniteUVTileSplitter",
+	"description": "This mod allows one to post-process meshes + renderers to support \"UV Tile Discard\" - a technique that became popular due to an avatar complexity metric in another platform.",
+	"category": "Asset Importing",
+	"sourceLocation": "https://github.com/mpmxyz/ResoniteUVTileSplitter/",
+	"versionTemplate": {
+		"releaseUrl": "https://github.com/mpmxyz/ResoniteUVTileSplitter/releases/tag/%TAG%",
+		"artifacts": [
+			{
+				"url": "https://github.com/mpmxyz/ResoniteUVTileSplitter/releases/download/%TAG%/ResoniteUVTileSplitter.dll",
+				"sha256": "computed automatically"
+			}
+		]
+	}
+}
