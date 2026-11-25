@@ -11,7 +11,7 @@ using ResoniteModLoader;
 namespace ResoniteUVTileSplitter;
 
 public class ResoniteUVTileSplitter : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.1";
+	internal const string VERSION_CONSTANT = "1.1.0";
 	public override string Name => "ResoniteUVTileSplitter";
 	public override string Author => "mpmxyz";
 	public override string Version => VERSION_CONSTANT;
